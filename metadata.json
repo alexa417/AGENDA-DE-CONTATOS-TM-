@@ -1,0 +1,10 @@
+{
+  "name": "AutoLead OCR & CRM - Automatización de Contactos",
+  "description": "Automatización con IA para capturar fotos de tarjetas, gafetes y documentos, extrayendo y sincronizando datos automáticamente en tu base de contactos y leads.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
