@@ -67,7 +67,7 @@ async function mapRow(row: any): Promise<Lead> {
 async function uploadPhoto(value: string | undefined, leadId: string, side: 'front' | 'back'): Promise<string | null> {
   if (!value) return null;
   if (value.startsWith('crm-card-images/')) return value;
-  if (/^https?:\\/\\//i.test(value)) {
+  if (value.startsWith('https://') || value.startsWith('http://')) {
     try {
       const pathname = new URL(value).pathname;
       const marker = '/storage/v1/object/sign/crm-card-images/';
