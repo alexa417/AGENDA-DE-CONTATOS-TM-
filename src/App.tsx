@@ -36,6 +36,7 @@ import {
   getLocalCachedLeads,
   saveLocalCachedLeads,
   fetchServerLeadsWithStatus,
+  fetchServerLeads,
   addLeadToServer,
   addBatchLeadsToServer,
   updateLeadOnServer,
