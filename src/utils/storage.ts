@@ -148,15 +148,10 @@ export function getLocalCachedLeads(): Lead[] {
   } catch { return []; }
 }
 export function saveLocalCachedLeads(leads: Lead[]) { cache(leads); }
-export function getPendingSyncLeads(): Lead[] {
-  try { return JSON.parse(localStorage.getItem(STORAGE_PENDING_KEY) || '[]') as Lead[]; } catch { return []; }
-}
-export function addPendingLead(lead: Lead) {
-  // Do not silently queue writes that could be replayed into the wrong account.
-  try { localStorage.setItem(STORAGE_PENDING_KEY, JSON.stringify([lead, ...getPendingSyncLeads().filter(l => l.id !== lead.id)])); } catch {}
-}
-export function removePendingLead(id: string) {
-  try { localStorage.setItem(STORAGE_PENDING_KEY, JSON.stringify(getPendingSyncLeads().filter(l => l.id !== id))); } catch {}
+export function getPendingSyncLeads(): Lead[] { return []; }
+export function addPendingLead(_lead: Lead) {}
+export function removePendingLead(_id: string) {
+  try { localStorage.removeItem(STORAGE_PENDING_KEY); } catch {}
 }
 export function clearPendingLeads() { try { localStorage.removeItem(STORAGE_PENDING_KEY); } catch {} }
 export function getDeletedLeadIds(): Set<string> { return new Set(); }
