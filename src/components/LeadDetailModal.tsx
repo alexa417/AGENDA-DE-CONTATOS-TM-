@@ -37,11 +37,13 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
 }) => {
   const [formData, setFormData] = useState<Lead | null>(null);
   const [isSaved, setIsSaved] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (lead) {
       setFormData({ ...lead });
       setIsSaved(false);
+      setShowDeleteConfirm(false);
     }
   }, [lead]);
 
@@ -89,19 +91,37 @@ export const LeadDetailModal: React.FC<LeadDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm('¿Seguro que deseas eliminar este contacto?')) {
-                  onDeleteLead(formData.id);
-                  onClose();
-                }
-              }}
-              className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-white/10 transition-colors"
-              title="Eliminar contacto"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {showDeleteConfirm ? (
+              <div className="flex items-center gap-2 bg-red-600/30 border border-red-500/60 px-3 py-1.5 rounded-xl text-xs text-white">
+                <span className="font-semibold text-red-200">¿Eliminar contacto #{formData.no}?</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteLead(formData.id);
+                    onClose();
+                  }}
+                  className="px-2.5 py-1 bg-red-600 hover:bg-red-700 font-bold rounded-lg text-white shadow transition-colors active:scale-95"
+                >
+                  Sí, eliminar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-white/10 transition-colors"
+                title="Eliminar contacto"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
             <button
               onClick={onClose}
               className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors"

@@ -49,27 +49,33 @@ export const AddManualModal: React.FC<AddManualModalProps> = ({
     setStatus('Pendiente');
   };
 
+  const [error, setError] = useState<string | null>(null);
+
   // Reset all fields whenever modal opens so it's always pristine and blank
   useEffect(() => {
     if (isOpen) {
       resetForm();
+      setError(null);
     }
   }, [isOpen]);
 
   const handleClose = () => {
     resetForm();
+    setError(null);
     onClose();
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!empresa.trim() && !nombre.trim()) {
-      alert('Por favor especifica al menos el nombre o la empresa.');
+      setError('Por favor especifica al menos el nombre o la empresa.');
       return;
     }
 
+    const uniqueId = `lead-manual-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+
     const newLead: Lead = {
-      id: `lead-manual-${Date.now()}`,
+      id: uniqueId,
       no: nextNo,
       nombre: nombre.trim(),
       apellidos: apellidos.trim(),
@@ -91,6 +97,7 @@ export const AddManualModal: React.FC<AddManualModalProps> = ({
 
     onAddLead(newLead);
     resetForm();
+    setError(null);
     onClose();
   };
 
@@ -115,6 +122,12 @@ export const AddManualModal: React.FC<AddManualModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 text-xs">
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center justify-between">
+              <span>{error}</span>
+              <button type="button" onClick={() => setError(null)} className="text-red-500 font-bold ml-2">✕</button>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Nombre</label>
@@ -143,7 +156,6 @@ export const AddManualModal: React.FC<AddManualModalProps> = ({
               <label className="block font-semibold text-slate-700 mb-1">Empresa *</label>
               <input
                 type="text"
-                required
                 value={empresa}
                 onChange={(e) => setEmpresa(e.target.value)}
                 placeholder="Nombre de la empresa"
@@ -166,9 +178,9 @@ export const AddManualModal: React.FC<AddManualModalProps> = ({
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Celular / WhatsApp</label>
               <input
-                type="text"
+                type="tel"
                 value={celular}
-                onChange={(e) => setCelular(e.target.value)}
+              onChange={(e) => setCelular(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 placeholder="8116294590"
                 className="w-full px-3 py-1.5 rounded-lg border border-slate-300 font-mono"
               />
@@ -176,9 +188,9 @@ export const AddManualModal: React.FC<AddManualModalProps> = ({
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Teléfono Fijo</label>
               <input
-                type="text"
+                type="tel"
                 value={telefonoFijo}
-                onChange={(e) => setTelefonoFijo(e.target.value)}
+                onChange={(e) => setTelefonoFijo(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 placeholder="8183690200"
                 className="w-full px-3 py-1.5 rounded-lg border border-slate-300"
               />
@@ -247,10 +259,10 @@ export const AddManualModal: React.FC<AddManualModalProps> = ({
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Página Web</label>
               <input
-                type="text"
+                type="url"
                 value={paginaWeb}
                 onChange={(e) => setPaginaWeb(e.target.value)}
-                placeholder="www.empresa.com"
+                placeholder="https://www.empresa.com"
                 className="w-full px-3 py-1.5 rounded-lg border border-slate-300"
               />
             </div>

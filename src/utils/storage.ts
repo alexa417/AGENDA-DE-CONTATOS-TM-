@@ -57,9 +57,48 @@ export async function getIndexedDBLeads(): Promise<Lead[]> {
   }
 }
 
+// Remove single lead from IndexedDB
+export async function deleteFromIndexedDB(id: string): Promise<void> {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(IDB_STORE_NAME);
+    store.delete(id);
+  } catch (err) {
+    console.warn('IndexedDB delete skipped:', err);
+  }
+}
+
+// Tombstone tracking to prevent deleted contacts from being resurrected by local cache sync
+const STORAGE_DELETED_KEY = 'autolead_crm_deleted_ids_v1';
+
+export function getDeletedLeadIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function markLeadAsDeleted(id: string): void {
+  try {
+    const ids = getDeletedLeadIds();
+    ids.add(id);
+    localStorage.setItem(STORAGE_DELETED_KEY, JSON.stringify(Array.from(ids)));
+  } catch {}
+}
+
+export function clearDeletedTombstones(): void {
+  try {
+    localStorage.removeItem(STORAGE_DELETED_KEY);
+  } catch {}
+}
+
 // Check both localStorage, pending queue, and IndexedDB for any leads not present on server
 export async function getAnyUnsavedLocalLeads(serverLeads: Lead[]): Promise<Lead[]> {
   const serverIdSet = new Set(serverLeads.map((l) => l.id));
+  const deletedIds = getDeletedLeadIds();
   const candidateLeads: Lead[] = [];
 
   // Check pending queue
@@ -74,11 +113,11 @@ export async function getAnyUnsavedLocalLeads(serverLeads: Lead[]): Promise<Lead
   const idb = await getIndexedDBLeads();
   candidateLeads.push(...idb);
 
-  // Deduplicate and filter to only those missing from server
+  // Deduplicate and filter to only those missing from server and NOT deleted
   const seen = new Set<string>();
   const missing: Lead[] = [];
   for (const lead of candidateLeads) {
-    if (lead && lead.id && !serverIdSet.has(lead.id) && !seen.has(lead.id)) {
+    if (lead && lead.id && !serverIdSet.has(lead.id) && !seen.has(lead.id) && !deletedIds.has(lead.id)) {
       seen.add(lead.id);
       missing.push(lead);
     }
@@ -300,8 +339,22 @@ export async function updateLeadOnServer(id: string, patch: Partial<Lead>): Prom
   }
 }
 
-// Delete a lead on server
+// Delete a lead on server and cleanse local caches and tombstones
 export async function deleteLeadOnServer(id: string): Promise<boolean> {
+  // Mark tombstone so auto-recovery never revives this lead
+  markLeadAsDeleted(id);
+  removePendingLead(id);
+
+  // Clean from localStorage cache
+  try {
+    const current = getLocalCachedLeads();
+    const updated = current.filter((l) => l.id !== id);
+    saveLocalCachedLeads(updated);
+  } catch {}
+
+  // Clean from IndexedDB
+  deleteFromIndexedDB(id).catch(() => {});
+
   try {
     const res = await fetch(`/api/leads/${id}`, {
       method: 'DELETE',
@@ -315,6 +368,7 @@ export async function deleteLeadOnServer(id: string): Promise<boolean> {
 
 // Reset leads on server
 export async function resetServerLeads(): Promise<Lead[]> {
+  clearDeletedTombstones();
   try {
     const res = await fetch('/api/leads/reset', { method: 'POST' });
     const data = await res.json();

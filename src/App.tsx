@@ -74,6 +74,7 @@ export default function App() {
   const [isExportSheetsOpen, setIsExportSheetsOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [droppedImage, setDroppedImage] = useState<string | null>(null);
   const [isDraggingOverWindow, setIsDraggingOverWindow] = useState(false);
 
@@ -389,22 +390,24 @@ export default function App() {
   };
 
   const handleDeleteLead = async (id: string) => {
+    if (selectedLead?.id === id) {
+      setSelectedLead(null);
+    }
     setLeads((prev) => prev.filter((l) => l.id !== id));
-    showToast('Contacto eliminado');
+    showToast('Contacto eliminado correctamente');
     await deleteLeadOnServer(id);
     syncFromServer(true);
   };
 
-  const handleResetData = async () => {
-    if (
-      window.confirm(
-        '¿Deseas restaurar la lista original de contactos de EXPOPYME? Se recargarán los 60+ contactos originales en todos los dispositivos.'
-      )
-    ) {
-      const reset = await resetServerLeads();
-      setLeads(reset);
-      showToast('Datos restaurados al listado original de EXPOPYME');
-    }
+  const handleResetData = () => {
+    setIsResetConfirmOpen(true);
+  };
+
+  const confirmResetData = async () => {
+    setIsResetConfirmOpen(false);
+    const reset = await resetServerLeads();
+    setLeads(reset);
+    showToast('Datos restaurados al listado original de EXPOPYME');
   };
 
   const handleExportCSV = () => {
@@ -422,7 +425,7 @@ export default function App() {
         const text = event.target?.result as string;
         const parsed = parseCSV(text);
         if (parsed.length === 0) {
-          alert('No se detectaron filas válidas en el archivo CSV.');
+          showToast('No se detectaron filas válidas en el archivo CSV.');
           return;
         }
 
@@ -454,7 +457,7 @@ export default function App() {
         showToast(`¡Se importaron y sincronizaron ${newItems.length} contactos desde el archivo CSV!`);
       } catch (err) {
         console.error('Error al importar CSV', err);
-        alert('Hubo un error al procesar el archivo CSV.');
+        showToast('Hubo un error al procesar el archivo CSV.');
       }
     };
     reader.readAsText(file);
@@ -1015,6 +1018,39 @@ export default function App() {
         leads={filteredLeads}
         totalLeadsCount={leads.length}
       />
+
+      {/* Safe in-app Reset Database Confirmation Modal */}
+      {isResetConfirmOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 text-center animate-in fade-in duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto mb-3">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 mb-1">
+              ¿Restaurar datos al listado inicial?
+            </h3>
+            <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+              Esta acción recargará el listado original de contactos de EXPOPYME para todos los dispositivos sincronizados.
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsResetConfirmOpen(false)}
+                className="flex-1 px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmResetData}
+                className="flex-1 px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-md transition-colors"
+              >
+                Sí, restaurar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

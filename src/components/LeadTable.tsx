@@ -32,6 +32,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
   // Default sort: newest leads first (highest No. or most recently created)
   const [sortField, setSortField] = useState<SortField>('no');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -413,11 +414,7 @@ export const LeadTable: React.FC<LeadTableProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (window.confirm(`¿Eliminar contacto #${lead.no} (${lead.empresa})?`)) {
-                              onDeleteLead(lead.id);
-                            }
-                          }}
+                          onClick={() => setLeadToDelete(lead)}
                           className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                           title="Eliminar"
                         >
@@ -442,6 +439,42 @@ export const LeadTable: React.FC<LeadTableProps> = ({
           Tip: Haz clic en el estado (🌀, 💰, 🙅🏻‍♀️, ⏳) de cualquier fila para cambiarlo directamente
         </span>
       </div>
+
+      {/* Safe in-app Delete Confirmation Dialog */}
+      {leadToDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full p-6 text-center animate-in fade-in duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-red-50 border border-red-200 text-red-600 flex items-center justify-center mx-auto mb-3">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 mb-1">
+              ¿Eliminar contacto #{leadToDelete.no}?
+            </h3>
+            <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+              Se eliminará a <strong className="text-slate-800">{leadToDelete.nombre} {leadToDelete.apellidos || leadToDelete.empresa}</strong> de forma permanente tanto en tu dispositivo como en el servidor.
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setLeadToDelete(null)}
+                className="flex-1 px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteLead(leadToDelete.id);
+                  setLeadToDelete(null);
+                }}
+                className="flex-1 px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-md transition-colors"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
