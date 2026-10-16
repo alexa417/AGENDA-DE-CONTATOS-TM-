@@ -5,6 +5,8 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // GitHub Pages hosts this repository under a path; local/other hosts use root.
+    base: process.env.GITHUB_ACTIONS === 'true' ? '/AGENDA-DE-CONTATOS-TM-/' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
