@@ -66,7 +66,20 @@ async function mapRow(row: any): Promise<Lead> {
 
 async function uploadPhoto(value: string | undefined, leadId: string, side: 'front' | 'back'): Promise<string | null> {
   if (!value) return null;
-  if (!value.startsWith('data:image/')) return value.startsWith('crm-card-images/') ? value : null;
+  if (value.startsWith('crm-card-images/')) return value;
+  if (/^https?:\\/\\//i.test(value)) {
+    try {
+      const pathname = new URL(value).pathname;
+      const marker = '/storage/v1/object/sign/crm-card-images/';
+      const publicMarker = '/storage/v1/object/public/crm-card-images/';
+      const index = pathname.indexOf(marker);
+      const publicIndex = pathname.indexOf(publicMarker);
+      if (index >= 0) return decodeURIComponent(pathname.slice(index + marker.length));
+      if (publicIndex >= 0) return decodeURIComponent(pathname.slice(publicIndex + publicMarker.length));
+    } catch {}
+    return null;
+  }
+  if (!value.startsWith('data:image/')) return null;
   const match = value.match(/^data:(image\/(?:jpeg|png|webp));base64,([\s\S]+)$/i);
   if (!match) throw new Error('La foto debe ser JPEG, PNG o WebP.');
   const mime = match[1].toLowerCase();
