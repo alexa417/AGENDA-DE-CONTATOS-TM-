@@ -13,6 +13,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { Lead, ExtractedLeadData, LeadStatus } from '../types/lead';
+import { supabase } from '../utils/storage';
 
 interface BatchScannerModalProps {
   isOpen: boolean;
@@ -105,23 +106,24 @@ export const BatchScannerModal: React.FC<BatchScannerModalProps> = ({
         try {
           const rawBase64 = e.target?.result as string;
           const base64 = await optimizeImage(rawBase64);
-          const res = await fetch('/api/extract-lead', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          const { data, error } = await supabase.functions.invoke('extract-lead', {
+            body: {
               imageBase64: base64,
               mimeType: 'image/jpeg',
               defaultEvent: eventInput,
               defaultLeadGenerator: generatorInput,
-            }),
+            },
           });
-
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.message || 'Error en Gemini');
+          if (error) {
+            const context = (error as any).context;
+            let detail = error.message || 'Error en el servicio OCR';
+            try {
+              const payload = context && typeof context.json === 'function' ? await context.json() : null;
+              if (payload?.error) detail = payload.error;
+            } catch {}
+            throw new Error(detail);
           }
 
-          const data = await res.json();
           if (data.success && data.lead) {
             resolve({ lead: data.lead, base64 });
           } else {
