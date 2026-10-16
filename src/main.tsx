@@ -38,7 +38,7 @@ function LoginScreen() {
         <input autoComplete="current-password" type="password" required value={password} onChange={e=>setPassword(e.target.value)} style={{padding:12,border:'1px solid #dedbea',borderRadius:10,fontSize:16}} />
       </label>
       {error && <p role="alert" style={{margin:0,color:'#b91c1c',fontSize:14}}>{error}</p>}
-      <button type="submit" disabled={loading} style={{padding:13,border:0,borderRadius:10,background:'#6d28d9',color:'white',fontWeight:700,fontSize:16,cursor:'pointer',opacity:loading?.7:1}}>{loading ? 'Validando acceso…' : 'Entrar al CRM'}</button>
+      <button type="submit" disabled={loading} style={{padding:13,border:0,borderRadius:10,background:'#6d28d9',color:'white',fontWeight:700,fontSize:16,cursor:'pointer',opacity: loading ? 0.7 : 1}}>{loading ? 'Validando acceso…' : 'Entrar al CRM'}</button>
       <p style={{fontSize:12,color:'#77748a',margin:0}}>El acceso se administra mediante Supabase. Si no tienes contraseña, solicita al administrador que habilite tu usuario.</p>
     </form>
   </main>;
