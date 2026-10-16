@@ -28,6 +28,7 @@ import {
   FlipHorizontal,
 } from 'lucide-react';
 import { Lead, ExtractedLeadData, LeadStatus, LeadType } from '../types/lead';
+import { supabase } from '../utils/storage';
 
 interface ScannerModalProps {
   isOpen: boolean;
@@ -418,10 +419,13 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     setSaveSuccess(false);
 
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.access_token) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
       const response = await fetch('/api/extract-lead', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionData.session.access_token}`,
         },
         body: JSON.stringify({
           frontImageBase64: frontBase64,

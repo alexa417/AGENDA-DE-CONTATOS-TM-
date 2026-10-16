@@ -1,401 +1,239 @@
-import { Lead } from '../types/lead';
-import { INITIAL_LEADS } from '../data/initialLeads';
+import { createClient } from '@supabase/supabase-js';
+import type { Lead, LeadStatus } from '../types/lead';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://mmpdquroegckjuhvfkns.supabase.co';
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_MX-7YFljw6nqki7qYQlBlg_uqnV4KfW';
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+});
 
 const STORAGE_KEY = 'autolead_crm_leads_v1';
-const IDB_DB_NAME = 'autolead_crm_db';
-const IDB_STORE_NAME = 'leads_cache';
+const STORAGE_PENDING_KEY = 'autolead_crm_pending_v1';
+const IMAGE_BUCKET = 'crm-card-images';
 
-// IndexedDB helper for unlimited local storage capacity
-function openIDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined' || !window.indexedDB) {
-      return reject(new Error('IndexedDB not supported'));
-    }
-    const request = indexedDB.open(IDB_DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(IDB_STORE_NAME)) {
-        db.createObjectStore(IDB_STORE_NAME, { keyPath: 'id' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+function mapStatus(status: string | null | undefined): LeadStatus {
+  if (status === 'Contactado') return 'Contactado';
+  if (status === 'Rechazado') return 'Rechazado';
+  if (status === 'Cerrado' || status === 'Nuevo Cierre') return 'Nuevo Cierre';
+  return 'Pendiente';
 }
 
-async function saveToIndexedDB(leads: Lead[]): Promise<void> {
+function dbStatus(status: LeadStatus): string {
+  if (status === 'Nuevo Cierre') return 'Cerrado';
+  if (status === 'Pendiente') return 'Nuevo';
+  return status;
+}
+
+async function signedPhoto(path: string | null | undefined): Promise<string | undefined> {
+  if (!path) return undefined;
+  if (/^(https?:|data:|blob:)/i.test(path)) return path;
+  const { data, error } = await supabase.storage.from(IMAGE_BUCKET).createSignedUrl(path, 3600);
+  if (error) return undefined;
+  return data.signedUrl;
+}
+
+async function mapRow(row: any): Promise<Lead> {
+  const [photoUrl, photoBackUrl] = await Promise.all([
+    signedPhoto(row.front_image_path),
+    signedPhoto(row.back_image_path),
+  ]);
+  return {
+    id: String(row.app_id || row.id),
+    no: row.numero ?? '',
+    nombre: row.nombre ?? '',
+    apellidos: row.apellidos ?? '',
+    empresa: row.empresa ?? '',
+    evento: row.evento ?? 'EXPOPYME',
+    notas: row.notas ?? row.informacion_adicional ?? '',
+    leadGenerator: row.responsable ?? '',
+    giroServicio: row.giro_servicio ?? row.servicios ?? '',
+    tipo: row.tipo ?? 'Lead',
+    celular: row.celular ?? row.whatsapp ?? '',
+    telefonoFijo: row.telefono_fijo ?? '',
+    correo: row.correo ?? '',
+    paginaWeb: row.pagina_web ?? '',
+    puesto: row.puesto ?? '',
+    direccion: row.direccion ?? '',
+    status: mapStatus(row.status),
+    createdAt: row.created_at ?? new Date().toISOString(),
+    photoUrl,
+    photoBackUrl,
+    confidence: row.ocr_confidence == null ? undefined : Number(row.ocr_confidence),
+    rawTextSummary: row.ocr_raw?.summary,
+    ocrTextLines: row.ocr_raw?.lines,
+  };
+}
+
+async function uploadPhoto(value: string | undefined, leadId: string, side: 'front' | 'back'): Promise<string | null> {
+  if (!value) return null;
+  if (value.startsWith('crm-card-images/')) return value;
+  if (value.startsWith('https://') || value.startsWith('http://')) {
+    try {
+      const pathname = new URL(value).pathname;
+      const marker = '/storage/v1/object/sign/crm-card-images/';
+      const publicMarker = '/storage/v1/object/public/crm-card-images/';
+      const index = pathname.indexOf(marker);
+      const publicIndex = pathname.indexOf(publicMarker);
+      if (index >= 0) return decodeURIComponent(pathname.slice(index + marker.length));
+      if (publicIndex >= 0) return decodeURIComponent(pathname.slice(publicIndex + publicMarker.length));
+    } catch {}
+    return null;
+  }
+  if (!value.startsWith('data:image/')) return null;
+  const match = value.match(/^data:(image\/(?:jpeg|png|webp));base64,([\s\S]+)$/i);
+  if (!match) throw new Error('La foto debe ser JPEG, PNG o WebP.');
+  const mime = match[1].toLowerCase();
+  const bytes = Uint8Array.from(atob(match[2]), c => c.charCodeAt(0));
+  if (bytes.byteLength > 3 * 1024 * 1024) throw new Error('Cada foto debe pesar menos de 3 MB.');
+  const ext = mime.split('/')[1] === 'jpeg' ? 'jpg' : mime.split('/')[1];
+  const path = `${leadId}/${side}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(path, bytes, { contentType: mime, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+async function toRow(lead: Lead) {
+  const { data: authData } = await supabase.auth.getUser();
+  const userId = authData.user?.id;
+  if (!userId) throw new Error('Tu sesión terminó. Inicia sesión nuevamente.');
+  const [frontPath, backPath] = await Promise.all([
+    uploadPhoto(lead.photoUrl, lead.id, 'front'),
+    uploadPhoto(lead.photoBackUrl, lead.id, 'back'),
+  ]);
+  return {
+    app_id: lead.id,
+    numero: String(lead.no ?? ''),
+    nombre: lead.nombre ?? '',
+    apellidos: lead.apellidos ?? '',
+    empresa: lead.empresa ?? '',
+    evento: lead.evento ?? 'EXPOPYME',
+    notas: lead.notas ?? '',
+    responsable: lead.leadGenerator ?? '',
+    giro_servicio: lead.giroServicio ?? '',
+    tipo: lead.tipo ?? 'Lead',
+    celular: lead.celular ?? '',
+    telefono_fijo: lead.telefonoFijo ?? '',
+    correo: lead.correo ?? '',
+    pagina_web: lead.paginaWeb ?? '',
+    puesto: lead.puesto ?? '',
+    direccion: lead.direccion ?? '',
+    status: dbStatus(lead.status),
+    created_by: userId,
+    front_image_path: frontPath,
+    back_image_path: backPath,
+    ocr_confidence: lead.confidence ?? null,
+    ocr_raw: lead.rawTextSummary || lead.ocrTextLines ? {
+      summary: lead.rawTextSummary ?? null,
+      lines: lead.ocrTextLines ?? [],
+    } : null,
+  };
+}
+
+function cache(leads: Lead[]) {
   try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(IDB_STORE_NAME);
-    // Clear and re-populate
-    store.clear();
-    for (const lead of leads) {
-      store.put(lead);
-    }
-  } catch (err) {
-    // Graceful silent fallback
-    console.warn('IndexedDB write skipped:', err);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(leads.map(l => ({
+      ...l,
+      photoUrl: l.photoUrl?.startsWith('data:') ? undefined : l.photoUrl,
+      photoBackUrl: l.photoBackUrl?.startsWith('data:') ? undefined : l.photoBackUrl,
+    }))));
+  } catch (error) {
+    console.warn('No se pudo actualizar la caché local:', error);
   }
 }
 
-// Retrieve all leads stored in IndexedDB (recovers any leads saved when localStorage was full)
-export async function getIndexedDBLeads(): Promise<Lead[]> {
-  try {
-    const db = await openIDB();
-    return new Promise((resolve) => {
-      const tx = db.transaction(IDB_STORE_NAME, 'readonly');
-      const store = tx.objectStore(IDB_STORE_NAME);
-      const req = store.getAll();
-      req.onsuccess = () => {
-        resolve(Array.isArray(req.result) ? req.result : []);
-      };
-      req.onerror = () => resolve([]);
-    });
-  } catch {
-    return [];
-  }
-}
-
-// Remove single lead from IndexedDB
-export async function deleteFromIndexedDB(id: string): Promise<void> {
-  try {
-    const db = await openIDB();
-    const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(IDB_STORE_NAME);
-    store.delete(id);
-  } catch (err) {
-    console.warn('IndexedDB delete skipped:', err);
-  }
-}
-
-// Tombstone tracking to prevent deleted contacts from being resurrected by local cache sync
-const STORAGE_DELETED_KEY = 'autolead_crm_deleted_ids_v1';
-
-export function getDeletedLeadIds(): Set<string> {
-  try {
-    const raw = localStorage.getItem(STORAGE_DELETED_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch {
-    return new Set();
-  }
-}
-
-export function markLeadAsDeleted(id: string): void {
-  try {
-    const ids = getDeletedLeadIds();
-    ids.add(id);
-    localStorage.setItem(STORAGE_DELETED_KEY, JSON.stringify(Array.from(ids)));
-  } catch {}
-}
-
-export function clearDeletedTombstones(): void {
-  try {
-    localStorage.removeItem(STORAGE_DELETED_KEY);
-  } catch {}
-}
-
-// Check both localStorage, pending queue, and IndexedDB for any leads not present on server
-export async function getAnyUnsavedLocalLeads(serverLeads: Lead[]): Promise<Lead[]> {
-  const serverIdSet = new Set(serverLeads.map((l) => l.id));
-  const deletedIds = getDeletedLeadIds();
-  const candidateLeads: Lead[] = [];
-
-  // Check pending queue
-  const pending = getPendingSyncLeads();
-  candidateLeads.push(...pending);
-
-  // Check localStorage
-  const local = getLocalCachedLeads();
-  candidateLeads.push(...local);
-
-  // Check IndexedDB
-  const idb = await getIndexedDBLeads();
-  candidateLeads.push(...idb);
-
-  // Deduplicate and filter to only those missing from server and NOT deleted
-  const seen = new Set<string>();
-  const missing: Lead[] = [];
-  for (const lead of candidateLeads) {
-    if (lead && lead.id && !serverIdSet.has(lead.id) && !seen.has(lead.id) && !deletedIds.has(lead.id)) {
-      seen.add(lead.id);
-      missing.push(lead);
-    }
-  }
-
-  return missing;
-}
-
-// Prepare leads for localStorage by omitting heavy base64 data URLs that exceed quota
-function sanitizeLeadsForLocalStorage(leads: Lead[]): Lead[] {
-  return leads.map((lead) => {
-    let photoUrl = lead.photoUrl;
-    let photoBackUrl = lead.photoBackUrl;
-
-    // Only keep photoUrl if it's an HTTP path (like /uploads/...) or very small
-    if (photoUrl && photoUrl.startsWith('data:') && photoUrl.length > 5000) {
-      photoUrl = undefined;
-    }
-    if (photoBackUrl && photoBackUrl.startsWith('data:') && photoBackUrl.length > 5000) {
-      photoBackUrl = undefined;
-    }
-
-    return {
-      ...lead,
-      photoUrl,
-      photoBackUrl,
-    };
-  });
-}
-
-// Synchronous fallback from localStorage
 export function getLocalCachedLeads(): Lead[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      saveLocalCachedLeads(INITIAL_LEADS);
-      return INITIAL_LEADS;
-    }
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
-    }
-    return INITIAL_LEADS;
-  } catch (err) {
-    console.warn('Notice: localStorage read warning, using initial data:', err);
-    return INITIAL_LEADS;
+    return raw ? JSON.parse(raw) as Lead[] : [];
+  } catch { return []; }
+}
+export function saveLocalCachedLeads(leads: Lead[]) { cache(leads); }
+export function getPendingSyncLeads(): Lead[] { return []; }
+export function addPendingLead(_lead: Lead) {}
+export function removePendingLead(_id: string) {
+  try { localStorage.removeItem(STORAGE_PENDING_KEY); } catch {}
+}
+export function clearPendingLeads() { try { localStorage.removeItem(STORAGE_PENDING_KEY); } catch {} }
+export function getDeletedLeadIds(): Set<string> { return new Set(); }
+export function markLeadAsDeleted(_id: string) {}
+export function clearDeletedTombstones() {}
+export async function getIndexedDBLeads(): Promise<Lead[]> { return []; }
+export async function deleteFromIndexedDB(_id: string): Promise<void> {}
+export async function getAnyUnsavedLocalLeads(_serverLeads: Lead[]): Promise<Lead[]> {
+  // Local cache is never auto-imported; this prevents deleted or stale contacts being resurrected.
+  return [];
+}
+
+export async function fetchServerLeadsWithStatus(): Promise<{leads: Lead[]; ok: boolean; version?: number; error?: string}> {
+  try {
+    const { data, error } = await supabase.from('contacts').select('*').is('deleted_at', null).order('created_at', { ascending: true });
+    if (error) throw error;
+    const leads = await Promise.all((data ?? []).map(mapRow));
+    cache(leads);
+    return { leads, ok: true, version: Date.now() };
+  } catch (error: any) {
+    return { leads: getLocalCachedLeads(), ok: false, error: error.message || 'Error de conexión con Supabase' };
   }
 }
-
-const STORAGE_PENDING_KEY = 'autolead_crm_pending_v1';
-
-export function getPendingSyncLeads(): Lead[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_PENDING_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function addPendingLead(lead: Lead): void {
-  try {
-    const current = getPendingSyncLeads();
-    const updated = [lead, ...current.filter((l) => l.id !== lead.id)];
-    localStorage.setItem(STORAGE_PENDING_KEY, JSON.stringify(sanitizeLeadsForLocalStorage(updated)));
-  } catch (err) {
-    console.warn('Could not add pending lead to local cache:', err);
-  }
-}
-
-export function removePendingLead(id: string): void {
-  try {
-    const current = getPendingSyncLeads();
-    const updated = current.filter((l) => l.id !== id);
-    localStorage.setItem(STORAGE_PENDING_KEY, JSON.stringify(updated));
-  } catch (err) {
-    console.warn('Could not remove pending lead:', err);
-  }
-}
-
-export function clearPendingLeads(): void {
-  try {
-    localStorage.removeItem(STORAGE_PENDING_KEY);
-  } catch {}
-}
-
-export function saveLocalCachedLeads(leads: Lead[]): void {
-  // Always async save to IndexedDB for complete resilience including large photos
-  saveToIndexedDB(leads).catch(() => {});
-
-  try {
-    const sanitized = sanitizeLeadsForLocalStorage(leads);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-  } catch (err: any) {
-    // If quota is still exceeded or storage is restricted, handle gracefully without throwing uncaught errors
-    console.warn('LocalStorage quota managed: saving lean dataset');
-    try {
-      const minimal = leads.slice(0, 100).map((l) => ({
-        id: l.id,
-        no: l.no,
-        nombre: l.nombre,
-        apellidos: l.apellidos,
-        empresa: l.empresa,
-        celular: l.celular,
-        correo: l.correo,
-        status: l.status,
-        tipo: l.tipo,
-        evento: l.evento,
-        puesto: l.puesto,
-        createdAt: l.createdAt,
-      }));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(minimal));
-    } catch {
-      // Storage fully disabled or private browsing quota; server and memory retain all data
-    }
-  }
-}
-
-// Fetch shared leads with status (Phone <-> PC real-time sync)
-export async function fetchServerLeadsWithStatus(): Promise<{
-  leads: Lead[];
-  ok: boolean;
-  version?: number;
-  error?: string;
-}> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
-    const res = await fetch('/api/leads', { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      return {
-        leads: getLocalCachedLeads(),
-        ok: false,
-        error: `HTTP ${res.status}: ${res.statusText}`,
-      };
-    }
-
-    const data = await res.json();
-    if (data.success && Array.isArray(data.leads)) {
-      try {
-        saveLocalCachedLeads(data.leads);
-      } catch (cacheErr) {
-        console.warn('Cache write warning (ignored):', cacheErr);
-      }
-      return {
-        leads: data.leads,
-        ok: true,
-        version: data.version,
-      };
-    }
-    return { leads: getLocalCachedLeads(), ok: false, error: 'Respuesta inválida del servidor' };
-  } catch (err: any) {
-    return {
-      leads: getLocalCachedLeads(),
-      ok: false,
-      error: err.name === 'AbortError' ? 'Tiempo de espera agotado' : (err.message || 'Error de conexión'),
-    };
-  }
-}
-
-// Backward compatible fetch
 export async function fetchServerLeads(): Promise<Lead[]> {
   const result = await fetchServerLeadsWithStatus();
+  if (!result.ok) throw new Error(result.error || 'No se pudieron cargar los contactos');
   return result.leads;
 }
-
-// Add a single lead to server
-export async function addLeadToServer(lead: Lead): Promise<{ success: boolean; lead?: Lead; error?: string }> {
+export async function addLeadToServer(lead: Lead): Promise<{success: boolean; lead?: Lead; error?: string}> {
   try {
-    const res = await fetch('/api/leads', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(lead),
-    });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    }
-    const data = await res.json();
-    return { success: true, lead: data.lead || lead };
-  } catch (err: any) {
-    console.warn('Error enviando lead al servidor:', err);
-    return { success: false, error: err.message || 'Error de red' };
+    const row = await toRow(lead);
+    const { data, error } = await supabase.from('contacts').upsert(row, { onConflict: 'app_id' }).select('*').single();
+    if (error) throw error;
+    const saved = await mapRow(data);
+    removePendingLead(lead.id);
+    return { success: true, lead: saved };
+  } catch (error: any) {
+    console.error('No se pudo guardar el contacto:', error);
+    return { success: false, error: error.message || 'Error al guardar' };
   }
 }
-
-// Add multiple leads to server
-export async function addBatchLeadsToServer(batch: Lead[]): Promise<{ success: boolean; count?: number; error?: string }> {
-  try {
-    const res = await fetch('/api/leads/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ batch }),
-    });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    }
-    const data = await res.json();
-    return { success: true, count: data.count || batch.length };
-  } catch (err: any) {
-    console.warn('Error enviando lote de leads al servidor:', err);
-    return { success: false, error: err.message || 'Error de red' };
+export async function addBatchLeadsToServer(batch: Lead[]): Promise<{success: boolean; count?: number; error?: string}> {
+  let count = 0;
+  for (const lead of batch) {
+    const result = await addLeadToServer(lead);
+    if (!result.success) return { success: false, count, error: result.error };
+    count++;
   }
+  return { success: true, count };
 }
-
-// Update a lead on server
 export async function updateLeadOnServer(id: string, patch: Partial<Lead>): Promise<boolean> {
   try {
-    const res = await fetch(`/api/leads/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    return res.ok;
-  } catch (err) {
-    console.warn('Error actualizando lead en servidor:', err);
+    const { data, error } = await supabase.from('contacts').select('*').eq('app_id', id).is('deleted_at', null).single();
+    if (error) throw error;
+    const current = await mapRow(data);
+    const result = await addLeadToServer({ ...current, ...patch, id });
+    return result.success;
+  } catch (error) {
+    console.error('No se pudo actualizar el contacto:', error);
     return false;
   }
 }
-
-// Delete a lead on server and cleanse local caches and tombstones
 export async function deleteLeadOnServer(id: string): Promise<boolean> {
-  // Mark tombstone so auto-recovery never revives this lead
-  markLeadAsDeleted(id);
-  removePendingLead(id);
-
-  // Clean from localStorage cache
   try {
-    const current = getLocalCachedLeads();
-    const updated = current.filter((l) => l.id !== id);
-    saveLocalCachedLeads(updated);
-  } catch {}
-
-  // Clean from IndexedDB
-  deleteFromIndexedDB(id).catch(() => {});
-
-  try {
-    const res = await fetch(`/api/leads/${id}`, {
-      method: 'DELETE',
-    });
-    return res.ok;
-  } catch (err) {
-    console.warn('Error eliminando lead en servidor:', err);
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) return false;
+    const { error } = await supabase.from('contacts').update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: authData.user.id,
+    }).eq('app_id', id).is('deleted_at', null);
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('No se pudo eliminar el contacto:', error);
     return false;
   }
 }
-
-// Reset leads on server
 export async function resetServerLeads(): Promise<Lead[]> {
-  clearDeletedTombstones();
-  try {
-    const res = await fetch('/api/leads/reset', { method: 'POST' });
-    const data = await res.json();
-    if (data.success && data.leads) {
-      saveLocalCachedLeads(data.leads);
-      clearPendingLeads();
-      return data.leads;
-    }
-  } catch (err) {
-    console.warn('Error reseteando leads en servidor:', err);
-  }
-  saveLocalCachedLeads(INITIAL_LEADS);
-  return INITIAL_LEADS;
+  // Safe by design: never reset or overwrite production data from a generic UI button.
+  return fetchServerLeads();
 }
-
-// Sync any pending offline leads to server
 export async function syncPendingLeadsToServer(): Promise<number> {
-  const pending = getPendingSyncLeads();
-  if (pending.length === 0) return 0;
-
-  let syncedCount = 0;
-  for (const lead of pending) {
-    const res = await addLeadToServer(lead);
-    if (res.success) {
-      removePendingLead(lead.id);
-      syncedCount++;
-    }
-  }
-  return syncedCount;
+  // Pending items are not replayed automatically across account sessions.
+  return 0;
 }

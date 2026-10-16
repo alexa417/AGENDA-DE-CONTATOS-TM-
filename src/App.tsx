@@ -36,6 +36,7 @@ import {
   getLocalCachedLeads,
   saveLocalCachedLeads,
   fetchServerLeadsWithStatus,
+  fetchServerLeads,
   addLeadToServer,
   addBatchLeadsToServer,
   updateLeadOnServer,
@@ -322,81 +323,71 @@ export default function App() {
 
   // Actions with server persistence and offline fallback
   const handleAddLead = async (newLead: Lead) => {
-    // 1. Immediately update UI state (so user sees their new contact instantly)
     setLeads((prev) => [newLead, ...prev.filter((l) => l.id !== newLead.id)]);
-    // 2. Track in pending queue
-    addPendingLead(newLead);
-    setPendingCount(getPendingSyncLeads().length);
     showToast(`Guardando: ${newLead.empresa || newLead.nombre}...`);
-
-    // 3. Persist to server
-    try {
-      const res = await addLeadToServer(newLead);
-      if (res.success) {
-        removePendingLead(newLead.id);
-        setPendingCount(getPendingSyncLeads().length);
-        setSyncStatus('connected');
-        if (res.lead) {
-          // Update with server version (which has permanent /uploads/ image path)
-          setLeads((prev) => prev.map((l) => (l.id === newLead.id ? res.lead! : l)));
-        }
-        showToast(`¡Contacto de ${newLead.empresa || newLead.nombre} guardado y sincronizado!`);
-      } else {
-        setSyncStatus('offline');
-        showToast(`Contacto guardado localmente (se sincronizará automáticamente al conectar)`);
-      }
-    } catch {
-      setSyncStatus('offline');
-      showToast(`Guardado en este dispositivo (pendiente de sincronizar)`);
+    const result = await addLeadToServer(newLead);
+    if (result.success) {
+      setSyncStatus('connected');
+      if (result.lead) setLeads((prev) => prev.map((l) => l.id === newLead.id ? result.lead! : l));
+      showToast(`¡Contacto de ${newLead.empresa || newLead.nombre} guardado en Supabase!`);
+      return;
     }
+    setSyncStatus('offline');
+    setLeads((prev) => prev.filter((l) => l.id !== newLead.id));
+    showToast(`No se guardó el contacto: ${result.error || 'revisa tu conexión e inténtalo de nuevo'}`);
   };
 
   const handleAddBatchLeads = async (batch: Lead[]) => {
+    const before = leads;
     setLeads((prev) => [...batch, ...prev]);
-    batch.forEach((l) => addPendingLead(l));
-    setPendingCount(getPendingSyncLeads().length);
     showToast(`Guardando ${batch.length} contactos...`);
-
-    try {
-      const res = await addBatchLeadsToServer(batch);
-      if (res.success) {
-        batch.forEach((l) => removePendingLead(l.id));
-        setPendingCount(getPendingSyncLeads().length);
-        setSyncStatus('connected');
-        showToast(`¡${batch.length} contactos guardados y sincronizados en todos tus dispositivos!`);
-        syncFromServer(true);
-      } else {
-        setSyncStatus('offline');
-        showToast(`${batch.length} contactos guardados localmente`);
-      }
-    } catch {
-      setSyncStatus('offline');
+    const result = await addBatchLeadsToServer(batch);
+    if (result.success) {
+      setSyncStatus('connected');
+      showToast(`Se guardaron ${result.count ?? batch.length} contactos en Supabase.`);
+      await syncFromServer(true);
+      return;
     }
+    setSyncStatus('offline');
+    try { setLeads(await fetchServerLeads()); } catch { setLeads(before); }
+    showToast(`Importación incompleta: ${result.count ?? 0} guardados. ${result.error || 'Verifica la conexión antes de reintentar.'}`);
   };
 
   const handleUpdateLead = async (updatedLead: Lead) => {
-    setLeads((prev) => prev.map((l) => (l.id === updatedLead.id ? updatedLead : l)));
-    showToast('Contacto actualizado y sincronizado');
+    const previous = leads;
+    setLeads((prev) => prev.map((l) => l.id === updatedLead.id ? updatedLead : l));
     const ok = await updateLeadOnServer(updatedLead.id, updatedLead);
-    if (!ok) {
-      addPendingLead(updatedLead);
-      setPendingCount(getPendingSyncLeads().length);
+    if (ok) {
+      showToast('Contacto actualizado en Supabase');
+      await syncFromServer(true);
+      return;
     }
+    setSyncStatus('offline');
+    try { setLeads(await fetchServerLeads()); } catch { setLeads(previous); }
+    showToast('No se pudo guardar el cambio. Se restauró la información confirmada en el servidor.');
   };
 
   const handleUpdateStatus = async (id: string, newStatus: LeadStatus) => {
-    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status: newStatus } : l)));
-    await updateLeadOnServer(id, { status: newStatus });
+    const previous = leads;
+    setLeads((prev) => prev.map((l) => l.id === id ? { ...l, status: newStatus } : l));
+    const ok = await updateLeadOnServer(id, { status: newStatus });
+    if (ok) return;
+    try { setLeads(await fetchServerLeads()); } catch { setLeads(previous); }
+    showToast('No se pudo actualizar el estado; revisa la conexión.');
   };
 
   const handleDeleteLead = async (id: string) => {
-    if (selectedLead?.id === id) {
-      setSelectedLead(null);
-    }
+    const previous = leads;
+    if (selectedLead?.id === id) setSelectedLead(null);
     setLeads((prev) => prev.filter((l) => l.id !== id));
-    showToast('Contacto eliminado correctamente');
-    await deleteLeadOnServer(id);
-    syncFromServer(true);
+    const ok = await deleteLeadOnServer(id);
+    if (ok) {
+      showToast('Contacto archivado; el historial se conserva en Supabase.');
+      await syncFromServer(true);
+      return;
+    }
+    try { setLeads(await fetchServerLeads()); } catch { setLeads(previous); }
+    showToast('No se pudo archivar el contacto. No se confirmó ningún cambio.');
   };
 
   const handleResetData = () => {
@@ -405,9 +396,13 @@ export default function App() {
 
   const confirmResetData = async () => {
     setIsResetConfirmOpen(false);
-    const reset = await resetServerLeads();
-    setLeads(reset);
-    showToast('Datos restaurados al listado original de EXPOPYME');
+    try {
+      const current = await fetchServerLeads();
+      setLeads(current);
+      showToast('La agenda se conservó intacta por seguridad. Puedes depurar contactos desde la tabla.');
+    } catch {
+      showToast('No se pudo validar la agenda. No se eliminó ningún contacto.');
+    }
   };
 
   const handleExportCSV = () => {
