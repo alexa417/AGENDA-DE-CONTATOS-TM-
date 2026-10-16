@@ -405,9 +405,13 @@ export default function App() {
 
   const confirmResetData = async () => {
     setIsResetConfirmOpen(false);
-    const reset = await resetServerLeads();
-    setLeads(reset);
-    showToast('Datos restaurados al listado original de EXPOPYME');
+    try {
+      const current = await fetchServerLeads();
+      setLeads(current);
+      showToast('La agenda se conservó intacta por seguridad. Puedes depurar contactos desde la tabla.');
+    } catch {
+      showToast('No se pudo validar la agenda. No se eliminó ningún contacto.');
+    }
   };
 
   const handleExportCSV = () => {
