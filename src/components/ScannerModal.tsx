@@ -421,28 +421,25 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session?.access_token) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
-      const response = await fetch('/api/extract-lead', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-        body: JSON.stringify({
+      const { data: result, error: functionError } = await supabase.functions.invoke('extract-lead', {
+        body: {
           frontImageBase64: frontBase64,
           backImageBase64: backBase64 || undefined,
           mimeType: 'image/jpeg',
           backMimeType: 'image/jpeg',
           defaultEvent: eventInput,
           defaultLeadGenerator: generatorInput,
-        }),
+        },
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || errorData.error || 'Error al comunicarse con el servidor');
+      if (functionError) {
+        const context = (functionError as any).context;
+        let detail = functionError.message || 'Error al comunicarse con el servicio OCR';
+        try {
+          const payload = context && typeof context.json === 'function' ? await context.json() : null;
+          if (payload?.error) detail = payload.error;
+        } catch {}
+        throw new Error(detail);
       }
-
-      const result = await response.json();
       if (result.success && result.lead) {
         const lead = result.lead;
         setExtractedData({
