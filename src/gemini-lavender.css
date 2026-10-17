@@ -1,0 +1,36 @@
+/* Gemini-inspired lavender visual layer for TM Contactos Inteligente */
+:root { --tm-purple:#7c3aed; --tm-violet:#6d28d9; --tm-lavender:#ede9fe; --tm-ink:#24163f; }
+body { background: radial-gradient(circle at 15% 0%, #f5efff 0, #fbf9ff 34%, #f6f3ff 100%) !important; color:#24163f !important; }
+body::before { content:""; position:fixed; inset:0; pointer-events:none; z-index:-1; background: radial-gradient(circle at 85% 10%, rgba(196,181,253,.24), transparent 30%), radial-gradient(circle at 5% 80%, rgba(232,121,249,.10), transparent 26%); }
+/* Main app shell */
+header.sticky { background: linear-gradient(135deg,#4c1d95 0%,#7c3aed 46%,#a855f7 100%) !important; border-bottom:0 !important; box-shadow:0 10px 30px rgba(76,29,149,.18) !important; }
+header.sticky .max-w-7xl { padding-top:18px !important; padding-bottom:18px !important; }
+header.sticky .rounded-xl { border-radius:14px !important; }
+header.sticky button { box-shadow:0 4px 14px rgba(45,20,80,.12); }
+/* Brand mark */
+header.sticky .w-10.h-10 { width:46px !important; height:46px !important; border-radius:15px !important; background:linear-gradient(135deg,#c084fc,#f0abfc) !important; box-shadow:0 8px 20px rgba(192,132,252,.35) !important; }
+header.sticky h1 { font-size:20px !important; letter-spacing:-.03em !important; }
+header.sticky p { color:#ede9fe !important; }
+/* Hero scanner CTA */
+header.sticky button.bg-gradient-to-r { border-radius:14px !important; padding:11px 18px !important; background:linear-gradient(135deg,#ffffff,#f3e8ff) !important; color:#5b21b6 !important; box-shadow:0 8px 22px rgba(30,13,65,.22) !important; }
+header.sticky button.bg-gradient-to-r svg { color:#7c3aed !important; }
+/* Page cards / panels */
+main .rounded-2xl, main .rounded-xl { border-radius:18px !important; }
+main .bg-white { background:rgba(255,255,255,.92) !important; border-color:#e9ddff !important; box-shadow:0 8px 28px rgba(76,29,149,.06) !important; }
+/* Search and controls */
+main input, main select { border-color:#ddd0f7 !important; background:#fff !important; }
+main input:focus, main select:focus { border-color:#a78bfa !important; box-shadow:0 0 0 4px rgba(167,139,250,.16) !important; outline:none !important; }
+/* Primary buttons throughout */
+main button.bg-purple-600, main button.bg-indigo-600 { background:linear-gradient(135deg,#7c3aed,#a855f7) !important; box-shadow:0 7px 18px rgba(124,58,237,.20) !important; }
+/* Section headings */
+main h2, main h3 { color:#3b1b68; }
+/* Table */
+main table thead { background:linear-gradient(90deg,#f5efff,#faf7ff) !important; }
+main table thead th { color:#6b4c93 !important; }
+main table tbody tr:hover { background:#faf7ff !important; }
+/* Status chips */
+main .bg-purple-100 { background:#f1e8ff !important; }
+/* Floating accent */
+.fixed.top-5.right-5 { border:1px solid rgba(196,181,253,.35) !important; box-shadow:0 18px 40px rgba(76,29,149,.20) !important; }
+/* Mobile-friendly spacing */
+@media (max-width:768px){ header.sticky .max-w-7xl { padding:14px !important; } header.sticky .max-w-7xl>div { gap:12px !important; } }
