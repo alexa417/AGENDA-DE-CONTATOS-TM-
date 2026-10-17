@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import UserAccessSettings from './components/UserAccessSettings';
 import './index.css';
 import './gemini-lavender.css';
 import { supabase } from './utils/storage';
@@ -48,7 +49,7 @@ function Root() {
   }, []);
   if (checking) return <main style={{minHeight:'100vh',display:'grid',placeItems:'center'}}>Verificando sesión segura…</main>;
   if (!session) return <LoginScreen />;
-  return <><App /><button onClick={() => supabase.auth.signOut()} style={{position:'fixed',right:12,bottom:12,zIndex:1000,padding:'9px 12px',border:'1px solid #ddd6fe',borderRadius:10,background:'#fff',color:'#4c1d95',fontWeight:700,cursor:'pointer'}}>Cerrar sesión</button></>;
+  return <><App /><UserAccessSettings /><button onClick={() => supabase.auth.signOut()} style={{position:'fixed',right:12,bottom:12,zIndex:1000,padding:'9px 12px',border:'1px solid #ddd6fe',borderRadius:10,background:'#fff',color:'#4c1d95',fontWeight:700,cursor:'pointer'}}>Cerrar sesión</button></>;
 }
 
 createRoot(document.getElementById('root')!).render(<Root />);
