@@ -23,6 +23,7 @@ export interface Lead {
   createdAt: string;
   photoUrl?: string;
   photoBackUrl?: string;
+  scanned?: boolean;
   confidence?: number;
   rawTextSummary?: string;
   ocrTextLines?: string[];
