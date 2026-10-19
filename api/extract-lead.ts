@@ -25,7 +25,9 @@ function isRetryableGeminiError(error: any) {
 }
 
 async function generateWithRetry(ai: GoogleGenAI, contents: any[]) {
-  const models = ['gemini-3.8-flash', 'gemini-3.6-flash'];
+  // Prefer the stable previous-generation Flash model because the newest model
+  // can experience temporary capacity spikes. Fall back to the newest model.
+  const models = ['gemini-3.6-flash', 'gemini-3.8-flash'];
   let lastError: any;
 
   for (const model of models) {
