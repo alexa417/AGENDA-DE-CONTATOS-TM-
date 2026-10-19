@@ -58,6 +58,7 @@ async function mapRow(row: any): Promise<Lead> {
     createdAt: row.created_at ?? new Date().toISOString(),
     photoUrl,
     photoBackUrl,
+    scanned: Boolean(row.front_image_path || row.back_image_path || String(row.app_id || row.id).startsWith('lead-scanned')),
     confidence: row.ocr_confidence == null ? undefined : Number(row.ocr_confidence),
     rawTextSummary: row.ocr_raw?.summary,
     ocrTextLines: row.ocr_raw?.lines,
@@ -160,7 +161,6 @@ export function clearDeletedTombstones() {}
 export async function getIndexedDBLeads(): Promise<Lead[]> { return []; }
 export async function deleteFromIndexedDB(_id: string): Promise<void> {}
 export async function getAnyUnsavedLocalLeads(_serverLeads: Lead[]): Promise<Lead[]> {
-  // Local cache is never auto-imported; this prevents deleted or stale contacts being resurrected.
   return [];
 }
 
@@ -230,10 +230,8 @@ export async function deleteLeadOnServer(id: string): Promise<boolean> {
   }
 }
 export async function resetServerLeads(): Promise<Lead[]> {
-  // Safe by design: never reset or overwrite production data from a generic UI button.
   return fetchServerLeads();
 }
 export async function syncPendingLeadsToServer(): Promise<number> {
-  // Pending items are not replayed automatically across account sessions.
   return 0;
 }
