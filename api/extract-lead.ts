@@ -21,17 +21,17 @@ const OCR_SCHEMA = {
 
 function isRetryableGeminiError(error: any) {
   const message = String(error?.message || '').toLowerCase();
-  return /503|unavailable|high demand|temporarily|429|resource_exhausted|rate limit/.test(message);
+  return /503|unavailable|high demand|temporarily|429|resource_exhausted|rate limit|overloaded|capacity/.test(message);
 }
 
 async function generateWithRetry(ai: GoogleGenAI, contents: any[]) {
-  // Prefer the stable previous-generation Flash model because the newest model
-  // can experience temporary capacity spikes. Fall back to the newest model.
-  const models = ['gemini-3.6-flash', 'gemini-3.8-flash'];
+  // Use Gemini throughout. Start with the lightweight multimodal model intended
+  // for high-throughput extraction, then fall back through the current Flash models.
+  const models = ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-3.8-flash'];
   let lastError: any;
 
   for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         return await ai.models.generateContent({
           model,
@@ -39,13 +39,14 @@ async function generateWithRetry(ai: GoogleGenAI, contents: any[]) {
           config: {
             responseMimeType: 'application/json',
             responseSchema: OCR_SCHEMA,
+            ...(model === 'gemini-3.5-flash-lite' ? { thinkingConfig: { thinkingLevel: 'minimal' } } : {})
           }
         });
       } catch (error: any) {
         lastError = error;
         if (!isRetryableGeminiError(error)) throw error;
-        if (attempt < 2) {
-          const delay = 1200 * (2 ** attempt) + Math.floor(Math.random() * 500);
+        if (attempt < 1) {
+          const delay = 1500 + Math.floor(Math.random() * 800);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
@@ -109,7 +110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(retryable ? 503 : 400).json({
       success: false,
       error: retryable
-        ? 'El servicio de OCR de Gemini está temporalmente saturado. Se hicieron varios intentos y también se probó un modelo alternativo. Intenta nuevamente en unos segundos.'
+        ? 'Gemini está temporalmente saturado. El sistema probó varios modelos Gemini y reintentó automáticamente. Intenta nuevamente en unos segundos.'
         : message.slice(0, 300)
     });
   }
