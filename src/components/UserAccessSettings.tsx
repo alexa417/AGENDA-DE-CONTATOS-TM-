@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { KeyRound, Settings, Plus, Pencil, UserCheck, UserX, Trash2, X, ShieldCheck, Eye, RefreshCw } from 'lucide-react';
 import { supabase } from '../utils/storage';
+import LeadGeneratorSettings from './LeadGeneratorSettings';
 
 type AccessRole = 'admin' | 'user' | 'viewer';
 type UserRow = {
@@ -127,6 +128,8 @@ export default function UserAccessSettings() {
         <div className="p-5 sm:p-7 space-y-5">
           {error && <div className="rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm">{error}</div>}
 
+          <LeadGeneratorSettings />
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="font-black text-slate-900">Personas con acceso</h3>
@@ -137,8 +140,6 @@ export default function UserAccessSettings() {
               <button type="button" onClick={openCreate} className="px-4 py-2 rounded-xl bg-violet-700 hover:bg-violet-800 text-white text-xs font-black flex items-center gap-2"><Plus className="w-4 h-4" /> Nuevo acceso</button>
             </div>
           </div>
-
-          {editing !== null || (form.email === '' && open && users.length === 0) ? null : null}
 
           {open && <form onSubmit={save} className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4 sm:p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="md:col-span-2 flex items-center justify-between">
