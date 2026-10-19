@@ -6,6 +6,53 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://mmpdquroegckjuhvfk
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_MX-7YFljw6nqki7qYQlBlg_uqnV4KfW';
 const allowedMimes = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
+const OCR_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    nombre: { type: Type.STRING }, apellidos: { type: Type.STRING }, empresa: { type: Type.STRING },
+    evento: { type: Type.STRING }, notas: { type: Type.STRING }, leadGenerator: { type: Type.STRING },
+    giroServicio: { type: Type.STRING }, tipo: { type: Type.STRING }, celular: { type: Type.STRING },
+    telefonoFijo: { type: Type.STRING }, correo: { type: Type.STRING }, paginaWeb: { type: Type.STRING },
+    puesto: { type: Type.STRING }, direccion: { type: Type.STRING }, confidence: { type: Type.NUMBER },
+    rawTextSummary: { type: Type.STRING }, ocrTextLines: { type: Type.ARRAY, items: { type: Type.STRING } }
+  },
+  required: ['nombre','apellidos','empresa','evento','notas','leadGenerator','giroServicio','tipo','celular','telefonoFijo','correo','paginaWeb','puesto','direccion','confidence','rawTextSummary','ocrTextLines']
+};
+
+function isRetryableGeminiError(error: any) {
+  const message = String(error?.message || '').toLowerCase();
+  return /503|unavailable|high demand|temporarily|429|resource_exhausted|rate limit/.test(message);
+}
+
+async function generateWithRetry(ai: GoogleGenAI, contents: any[]) {
+  const models = ['gemini-3.8-flash', 'gemini-3.6-flash'];
+  let lastError: any;
+
+  for (const model of models) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await ai.models.generateContent({
+          model,
+          contents,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: OCR_SCHEMA,
+          }
+        });
+      } catch (error: any) {
+        lastError = error;
+        if (!isRetryableGeminiError(error)) throw error;
+        if (attempt < 2) {
+          const delay = 1200 * (2 ** attempt) + Math.floor(Math.random() * 500);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
@@ -42,26 +89,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     parts.push({ text: `Extrae con precisión la información de esta tarjeta de presentación. Si hay frente y reverso, combina ambos. No inventes datos; usa cadena vacía si no se ve. Responde únicamente JSON. Evento predeterminado: ${String(defaultEvent).slice(0,100)}. Responsable: ${String(defaultLeadGenerator).slice(0,100)}. Contexto adicional: ${String(additionalContext).slice(0,500)}. Separa nombre y apellidos cuando sea posible.` });
 
     const ai = new GoogleGenAI({ apiKey });
-    const generated = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: [{ role: 'user', parts }],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            nombre: { type: Type.STRING }, apellidos: { type: Type.STRING }, empresa: { type: Type.STRING },
-            evento: { type: Type.STRING }, notas: { type: Type.STRING }, leadGenerator: { type: Type.STRING },
-            giroServicio: { type: Type.STRING }, tipo: { type: Type.STRING }, celular: { type: Type.STRING },
-            telefonoFijo: { type: Type.STRING }, correo: { type: Type.STRING }, paginaWeb: { type: Type.STRING },
-            puesto: { type: Type.STRING }, direccion: { type: Type.STRING }, confidence: { type: Type.NUMBER },
-            rawTextSummary: { type: Type.STRING }, ocrTextLines: { type: Type.ARRAY, items: { type: Type.STRING } }
-          },
-          required: ['nombre','apellidos','empresa','evento','notas','leadGenerator','giroServicio','tipo','celular','telefonoFijo','correo','paginaWeb','puesto','direccion','confidence','rawTextSummary','ocrTextLines']
-        }
-      }
-    });
-
+    const generated = await generateWithRetry(ai, [{ role: 'user', parts }]);
     const parsed = JSON.parse(generated.text || '{}');
     const lead = {
       ...parsed,
@@ -75,6 +103,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ success: true, lead });
   } catch (error: any) {
     const message = String(error?.message || 'No se pudo procesar la tarjeta');
-    return res.status(400).json({ success: false, error: message.slice(0, 300) });
+    const retryable = isRetryableGeminiError(error);
+    return res.status(retryable ? 503 : 400).json({
+      success: false,
+      error: retryable
+        ? 'El servicio de OCR de Gemini está temporalmente saturado. Se hicieron varios intentos y también se probó un modelo alternativo. Intenta nuevamente en unos segundos.'
+        : message.slice(0, 300)
+    });
   }
 }
