@@ -10,6 +10,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 const STORAGE_KEY = 'autolead_crm_leads_v1';
 const STORAGE_PENDING_KEY = 'autolead_crm_pending_v1';
 const IMAGE_BUCKET = 'crm-card-images';
+const DEFAULT_EVENT = 'Contactos TM';
 
 function mapStatus(status: string | null | undefined): LeadStatus {
   if (status === 'Contactado') return 'Contactado';
@@ -43,7 +44,7 @@ async function mapRow(row: any): Promise<Lead> {
     nombre: row.nombre ?? '',
     apellidos: row.apellidos ?? '',
     empresa: row.empresa ?? '',
-    evento: row.evento ?? 'EXPOPYME',
+    evento: row.evento ?? DEFAULT_EVENT,
     notas: row.notas ?? row.informacion_adicional ?? '',
     leadGenerator: row.responsable ?? '',
     giroServicio: row.giro_servicio ?? row.servicios ?? '',
@@ -107,7 +108,7 @@ async function toRow(lead: Lead) {
     nombre: lead.nombre ?? '',
     apellidos: lead.apellidos ?? '',
     empresa: lead.empresa ?? '',
-    evento: lead.evento ?? 'EXPOPYME',
+    evento: lead.evento ?? DEFAULT_EVENT,
     notas: lead.notas ?? '',
     responsable: lead.leadGenerator ?? '',
     giro_servicio: lead.giroServicio ?? '',
